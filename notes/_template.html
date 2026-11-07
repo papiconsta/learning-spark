@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- TEMPLATE: copy to chNN.html, set <title>, data-page, header, and sections. -->
+  <title>Ch 0 · Template | Spark Notes</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+  <link rel="stylesheet" href="assets/style.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  <script src="assets/notes.js"></script>
+</head>
+<!-- data-page MUST equal the file name: progress is stored under it -->
+<body data-page="_template.html">
+  <div id="progress-bar"></div>
+  <header class="topbar">
+    <a class="home" href="index.html"><span class="spark-dot"></span> Spark Notes</a>
+    <span class="spacer"></span>
+    <button class="btn" id="theme-toggle">☾ Dark</button>
+  </header>
+
+  <div class="layout">
+    <nav class="toc"><h4>On this page</h4></nav>
+
+    <main>
+      <div class="chapter-header">
+        <div class="eyebrow">Chapter 0 · Template</div>
+        <h1>Component showcase</h1>
+        <div class="meta">
+          <span class="pill">Book pp. 20–38</span>
+          <span class="pill">~15 min</span>
+          <span class="pill">PySpark 4.x</span>
+        </div>
+      </div>
+
+      <!-- ===== Section: explanation + code + output ===== -->
+      <section class="note" id="lazy-evaluation">
+        <h2>Lazy evaluation</h2>
+        <p class="tldr">Transformations only build a plan. Nothing runs until you call an action.</p>
+        <p>A <span class="term">transformation</span> (<code>filter</code>, <code>select</code>, <code>groupBy</code>)
+           returns a new DataFrame describing <em>what</em> to compute. An <span class="term">action</span>
+           (<code>count</code>, <code>show</code>, <code>collect</code>, <code>write</code>) makes Spark optimize the whole plan and execute it.</p>
+
+        <pre><code class="language-python">from pyspark.sql import SparkSession, functions as F
+
+spark = SparkSession.builder.master("local[*]").appName("learning-spark").getOrCreate()
+
+df = spark.range(1_000_000)                  # transformation: nothing runs yet
+evens = df.filter(F.col("id") % 2 == 0)      # still nothing
+print(evens.count())                         # action: now Spark runs the job</code></pre>
+        <pre class="output"><code>500000</code></pre>
+
+        <div class="callout pandas"><div class="title">vs pandas</div>
+          <p>In pandas every line runs immediately. In Spark you're building a query, closer to writing SQL than to calling NumPy.</p></div>
+        <div class="callout key"><div class="title">Key idea</div>
+          <p>Because Spark sees the whole plan first, it can reorder and combine steps, e.g. push a filter down into the file scan.</p></div>
+        <div class="callout warn"><div class="title">Common mistake</div>
+          <p>Calling <code>.count()</code> or <code>.show()</code> after every step "to check" re-runs the whole plan each time.</p></div>
+        <div class="callout changed"><div class="title">Changed since the book</div>
+          <p>The book uses <code>sqlContext</code> in places; in Spark 4 always use <code>SparkSession</code>.</p></div>
+        <div class="callout tip"><div class="title">Tip</div>
+          <p>Use <code>df.explain()</code> to see the physical plan without running anything.</p></div>
+      </section>
+
+      <!-- ===== Section: tabs, table, diagram ===== -->
+      <section class="note" id="narrow-vs-wide">
+        <h2>Narrow vs wide transformations</h2>
+        <div class="diagram">
+          <div class="flow">
+            <span class="box">read</span><span class="arrow">→</span>
+            <span class="box">filter <small>(narrow)</small></span><span class="arrow">→</span>
+            <span class="box hl">groupBy <small>(wide · shuffle)</small></span><span class="arrow">→</span>
+            <span class="box">count</span>
+          </div>
+          <div class="caption">A shuffle splits the job into stages.</div>
+        </div>
+
+        <div class="table-wrap"><table>
+          <tr><th></th><th>Narrow</th><th>Wide</th></tr>
+          <tr><td>Partitions</td><td>1 input → 1 output</td><td>many inputs → many outputs</td></tr>
+          <tr><td>Examples</td><td><code>filter</code>, <code>select</code>, <code>withColumn</code></td><td><code>groupBy</code>, <code>join</code>, <code>orderBy</code></td></tr>
+          <tr><td>Cost</td><td>cheap, pipelined in memory</td><td>shuffle: disk + network</td></tr>
+        </table></div>
+
+        <div class="tabs">
+          <div class="tab-panel" data-label="DataFrame API">
+            <pre><code class="language-python">df.groupBy("dest").agg(F.sum("count").alias("total")).orderBy(F.desc("total"))</code></pre>
+          </div>
+          <div class="tab-panel" data-label="Spark SQL">
+            <pre><code class="language-sql">SELECT dest, SUM(count) AS total FROM flights GROUP BY dest ORDER BY total DESC</code></pre>
+          </div>
+        </div>
+
+        <details class="reveal">
+          <summary>Predict: how many stages does the query above need?</summary>
+          <div class="body"><p>At least two: <code>groupBy</code> and <code>orderBy</code> each need a shuffle.</p></div>
+        </details>
+      </section>
+
+      <!-- ===== Section: flashcards + quiz ===== -->
+      <section class="note" id="check-yourself">
+        <h2>Check yourself</h2>
+        <p>Click a card to flip it.</p>
+        <div class="cards">
+          <div class="card"><div class="inner"><div class="front">Action</div><div class="back">Triggers execution of the plan, e.g. count, show, write.</div></div></div>
+          <div class="card"><div class="inner"><div class="front">Shuffle</div><div class="back">Redistributing data across partitions; caused by wide transformations.</div></div></div>
+          <div class="card"><div class="inner"><div class="front">Partition</div><div class="back">A chunk of rows that one executor task processes.</div></div></div>
+        </div>
+
+        <h3>Quiz · <span class="quiz-score"></span> <button class="btn" id="reset-quiz">Reset</button></h3>
+        <!-- data-answer = zero-based index of the correct option -->
+        <div class="quiz" data-answer="2">
+          <div class="q">Which of these triggers a Spark job?</div>
+          <div class="options">
+            <button>df.filter(...)</button>
+            <button>df.select(...)</button>
+            <button>df.count()</button>
+            <button>df.withColumn(...)</button>
+          </div>
+          <div class="explain"><code>count()</code> is an action. The rest are lazy transformations.</div>
+        </div>
+        <div class="quiz" data-answer="0">
+          <div class="q">Which transformation causes a shuffle?</div>
+          <div class="options">
+            <button>groupBy</button>
+            <button>filter</button>
+            <button>select</button>
+          </div>
+          <div class="explain">Rows with the same key must end up in the same partition, so <code>groupBy</code> moves data between partitions.</div>
+        </div>
+      </section>
+
+      <nav class="footer-nav">
+        <a class="btn" href="index.html">← All chapters</a>
+        <!-- <a class="btn" href="ch03.html">Next: Chapter 3 →</a> -->
+      </nav>
+    </main>
+  </div>
+</body>
+</html>

@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Spark Notes</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/style.css">
+  <script src="assets/notes.js"></script>
+  <script src="assets/manifest.js"></script>
+</head>
+<body data-page="index">
+  <header class="topbar">
+    <a class="home" href="index.html"><span class="spark-dot"></span> Spark Notes</a>
+    <span class="spacer"></span>
+    <button class="btn" id="theme-toggle">☾ Dark</button>
+  </header>
+
+  <div class="hero">
+    <div class="eyebrow">Spark: The Definitive Guide · PySpark 4</div>
+    <h1>My Spark learning notes</h1>
+    <p>One interactive page per chapter, with key ideas, runnable PySpark, quizzes and flashcards.
+       Your progress is saved in this browser.</p>
+    <div class="stats">
+      <div class="stat"><b id="s-written">0</b> chapters written</div>
+      <div class="stat"><b id="s-sections">0</b> sections understood</div>
+      <div class="stat"><b id="s-quiz">–</b> quiz accuracy</div>
+    </div>
+  </div>
+
+  <main class="grid" id="grid"></main>
+
+  <script>
+    document.addEventListener("DOMContentLoaded", () => {
+      const store = window.SparkNotesStore;
+      const grid = document.getElementById("grid");
+      let written = 0, sectionsDone = 0, right = 0, answered = 0;
+
+      for (const ch of window.SPARK_CHAPTERS) {
+        if (ch.part) {
+          const h = document.createElement("h2");
+          h.className = "part-title"; h.textContent = "Part " + ch.part;
+          grid.appendChild(h); continue;
+        }
+        const a = document.createElement("a");
+        a.className = "chapter-card" + (ch.file ? "" : " locked");
+        if (ch.file) a.href = ch.file;
+        const prog = ch.file ? store.get("progress:" + ch.file, { done: 0, total: 0 }) : { done: 0, total: 0 };
+        const quiz = ch.file ? store.get("quiz:" + ch.file, {}) : {};
+        if (ch.file) written++;
+        sectionsDone += prog.done;
+        answered += Object.keys(quiz).length;
+        right += Object.values(quiz).filter(Boolean).length;
+        const pct = prog.total ? Math.round((prog.done / prog.total) * 100) : 0;
+        a.innerHTML = `
+          <div class="num">Chapter ${ch.n}</div>
+          <h3></h3>
+          <small></small>
+          <div class="bar"><span style="width:${pct}%"></span></div>`;
+        a.querySelector("h3").textContent = ch.title;
+        a.querySelector("small").textContent = ch.file ? (ch.summary || `${prog.done}/${prog.total} sections understood`) : "Not written yet";
+        grid.appendChild(a);
+      }
+      document.getElementById("s-written").textContent = written;
+      document.getElementById("s-sections").textContent = sectionsDone;
+      document.getElementById("s-quiz").textContent = answered ? Math.round((right / answered) * 100) + "%" : "–";
+    });
+  </script>
+</body>
+</html>
