@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ch 2 · A Gentle Introduction to Spark | Spark Notes</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+  <link rel="stylesheet" href="assets/style.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  <script src="assets/notes.js"></script>
+</head>
+<body data-page="ch02.html">
+  <div id="progress-bar"></div>
+  <header class="topbar">
+    <a class="home" href="index.html"><span class="spark-dot"></span> Spark Notes</a>
+    <span class="spacer"></span>
+    <button class="btn" id="theme-toggle">☾ Dark</button>
+  </header>
+
+  <div class="layout">
+    <nav class="toc"><h4>On this page</h4></nav>
+
+    <main>
+      <div class="chapter-header">
+        <div class="eyebrow">Chapter 2 · PySpark fundamentals</div>
+        <h1>A Gentle Introduction to Spark</h1>
+        <div class="meta">
+          <span class="pill">Book pp. 20–38</span>
+          <span class="pill">~20 min</span>
+          <span class="pill">PySpark 4.3 · local mode</span>
+        </div>
+      </div>
+
+      <section class="note" id="architecture">
+        <h2>Architecture: driver, executors, cluster manager</h2>
+        <p class="tldr">One driver plans the work; many executors do it; a cluster manager hands out machines.</p>
+        <div class="diagram">
+          <div class="flow">
+            <span class="box hl">Driver<br><small>runs your main(), builds the plan, schedules tasks</small></span>
+            <span class="arrow">⇄</span>
+            <span class="box">Cluster manager<br><small>YARN · Kubernetes · standalone</small></span>
+            <span class="arrow">→</span>
+            <span class="box">Executor 1</span>
+            <span class="box">Executor 2</span>
+            <span class="box">Executor N</span>
+          </div>
+          <div class="caption">Executors only run the code the driver gives them and report results back.</div>
+        </div>
+        <ul>
+          <li>The <span class="term">driver</span> is your Python process. It holds the <code>SparkSession</code> and decides what runs where.</li>
+          <li><span class="term">Executors</span> are JVM processes on worker machines. Each runs tasks on its own partitions.</li>
+          <li>In <span class="term">local mode</span> (what we use) driver and executors are just threads on your laptop. The code is identical to what you'd run on a cluster.</li>
+        </ul>
+        <div class="callout changed"><div class="title">Changed since the book</div>
+          <p>The book lists Mesos as a cluster manager. It is gone in Spark 4; Kubernetes is the other mainstream choice besides YARN.</p></div>
+        <div class="callout pandas"><div class="title">vs pandas</div>
+          <p>PySpark code doesn't run in Python. Your calls build a plan that the driver ships to JVM executors, so Python lambdas and UDFs are the slow path (more in later chapters).</p></div>
+      </section>
+
+      <section class="note" id="sparksession">
+        <h2>SparkSession and your first DataFrame</h2>
+        <p class="tldr">The <code>SparkSession</code> is the single entry point; a DataFrame is an immutable, distributed table with a schema.</p>
+        <pre><code class="language-python">from pyspark.sql import SparkSession, functions as F
+
+spark = SparkSession.builder.master("local[*]").appName("learning-spark").getOrCreate()
+
+my_range = spark.range(1000).toDF("number")
+my_range.printSchema()
+print(my_range.rdd.getNumPartitions())</code></pre>
+        <pre class="output"><code>root
+ |-- number: long (nullable = false)
+
+16</code></pre>
+        <ul>
+          <li><span class="term">Schema</span>: column names and types. Here one <code>long</code> column.</li>
+          <li><span class="term">Partition</span>: a chunk of rows that one task processes. 16 here, because <code>local[*]</code> uses every core on this machine.</li>
+          <li>DataFrames are <span class="term">immutable</span>. Every operation returns a new DataFrame; nothing is modified in place.</li>
+        </ul>
+        <div class="callout warn"><div class="title">Common mistake</div>
+          <p>Partitions are the unit of parallelism. One partition means one task at a time, no matter how many cores or executors you have. Too many tiny partitions waste time on scheduling.</p></div>
+      </section>
+
+      <section class="note" id="transformations-actions">
+        <h2>Transformations vs actions, and lazy evaluation</h2>
+        <p class="tldr">Transformations describe; actions execute. Spark optimizes the whole plan before running anything.</p>
+        <pre><code class="language-python">div_by_2 = my_range.where("number % 2 = 0")   # transformation: no job, no output
+div_by_2.count()                               # action: runs a job</code></pre>
+        <pre class="output"><code>500</code></pre>
+        <div class="table-wrap"><table>
+          <tr><th></th><th>Transformation</th><th>Action</th></tr>
+          <tr><td>Returns</td><td>a new DataFrame</td><td>a Python value, console output, or files</td></tr>
+          <tr><td>Runs a job?</td><td>No (lazy)</td><td>Yes</td></tr>
+          <tr><td>Examples</td><td><code>where</code>, <code>select</code>, <code>groupBy</code>, <code>join</code></td><td><code>count</code>, <code>show</code>, <code>collect</code>, <code>write</code></td></tr>
+        </table></div>
+        <div class="callout key"><div class="title">Key idea</div>
+          <p>Because Spark sees the whole plan first, it can optimize end to end. Example: <span class="term">predicate pushdown</span> moves a filter down into the file scan so less data is read at all.</p></div>
+        <div class="callout warn"><div class="title">Common mistake</div>
+          <p>Calling <code>count()</code> or <code>show()</code> after every step to "check" re-runs the whole plan each time. Use <code>explain()</code> or <code>printSchema()</code>, which don't run a job.</p></div>
+        <details class="reveal">
+          <summary>Predict: does <code>spark.range(10**12).where("number % 2 = 0")</code> take long?</summary>
+          <div class="body"><p>No. It's a transformation, so it returns instantly. Only an action would try to process the trillion rows.</p></div>
+        </details>
+      </section>
+
+      <section class="note" id="narrow-wide">
+        <h2>Narrow vs wide transformations (shuffles)</h2>
+        <p class="tldr">Narrow = each partition stands alone and is pipelined in memory. Wide = data moves between partitions (a shuffle).</p>
+        <div class="diagram">
+          <div class="flow">
+            <span class="box">scan</span><span class="arrow">→</span>
+            <span class="box">filter <small>(narrow)</small></span><span class="arrow">→</span>
+            <span class="box hl">groupBy <small>(wide · shuffle)</small></span><span class="arrow">→</span>
+            <span class="box">sum</span>
+          </div>
+          <div class="caption">A shuffle is a stage boundary: Spark writes shuffle data to disk and sends it over the network.</div>
+        </div>
+        <div class="table-wrap"><table>
+          <tr><th></th><th>Narrow</th><th>Wide</th></tr>
+          <tr><td>Partitions</td><td>1 input → 1 output</td><td>many → many</td></tr>
+          <tr><td>Examples</td><td><code>filter</code>, <code>select</code>, <code>withColumn</code></td><td><code>groupBy</code>, <code>join</code>, <code>orderBy</code>, <code>distinct</code></td></tr>
+          <tr><td>Cost</td><td>cheap; chained filters run pipelined in memory</td><td>expensive: disk + network</td></tr>
+        </table></div>
+        <p>You can see the shuffle in the physical plan. It appears as <code>Exchange</code>:</p>
+        <pre><code class="language-python">flights.where("count &gt; 10").groupBy("DEST").sum("count").explain()</code></pre>
+        <pre class="output"><code>== Physical Plan ==
+AdaptiveSparkPlan isFinalPlan=false
++- HashAggregate(keys=[DEST#7], functions=[sum(count#9L)])
+   +- Exchange hashpartitioning(DEST#7, 200), ENSURE_REQUIREMENTS
+      +- HashAggregate(keys=[DEST#7], functions=[partial_sum(count#9L)])
+         +- Project [DEST#7, count#9L]
+            +- Filter (isnotnull(count#9L) AND (count#9L &gt; 10))
+               +- Scan ExistingRDD[DEST#7,ORIGIN#8,count#9L]</code></pre>
+        <p>Read it bottom-up: scan → filter → partial sum on each partition → <strong>Exchange (shuffle)</strong> → final sum.
+           Spark pre-aggregates before the shuffle (<code>partial_sum</code>) so less data moves.</p>
+        <div class="callout tip"><div class="title">Tip</div>
+          <p>The <code>200</code> in <code>hashpartitioning(DEST, 200)</code> is <code>spark.sql.shuffle.partitions</code>, whose default is 200. It is often wrong for small local data (200 tiny tasks) and for very large data. You'll tune it in Chapter 19.</p></div>
+        <div class="callout changed"><div class="title">Changed since the book</div>
+          <p><code>AdaptiveSparkPlan</code> is Adaptive Query Execution (on by default since Spark 3.2). It adjusts shuffle partitions and join strategies at runtime, so real plans differ from the book's.</p></div>
+      </section>
+
+      <section class="note" id="end-to-end">
+        <h2>End-to-end: DataFrame API and SQL are the same thing</h2>
+        <p class="tldr">Both compile to the same optimized plan, so pick whichever reads better.</p>
+        <p>The book loads CSVs with <code>spark.read.option("inferSchema","true").option("header","true").csv(...)</code>. Its data isn't in this repo, so here is the same query on a small inline table:</p>
+        <pre><code class="language-python">data = [("United States","Romania",15), ("United States","Croatia",1),
+        ("United States","Ireland",344), ("Egypt","United States",15),
+        ("United States","India",62), ("India","United States",69)]
+flights = spark.createDataFrame(data, ["DEST", "ORIGIN", "count"])
+flights.createOrReplaceTempView("flights")</code></pre>
+        <div class="tabs">
+          <div class="tab-panel" data-label="DataFrame API">
+            <pre><code class="language-python">(flights.groupBy("DEST")
+        .agg(F.sum("count").alias("total"))
+        .orderBy(F.desc("total"))
+        .show())</code></pre>
+          </div>
+          <div class="tab-panel" data-label="Spark SQL">
+            <pre><code class="language-python">spark.sql("""
+    SELECT DEST, SUM(count) AS total
+    FROM flights GROUP BY DEST ORDER BY total DESC
+""").show()</code></pre>
+          </div>
+        </div>
+        <pre class="output"><code>+-------------+-----+
+|         DEST|total|
++-------------+-----+
+|United States|  422|
+|        India|   69|
+|        Egypt|   15|
++-------------+-----+</code></pre>
+        <div class="callout key"><div class="title">Key idea</div>
+          <p>Both versions go through the same optimizer, so there's no performance reason to prefer one. You can mix them freely with temp views.</p></div>
+        <div class="callout tip"><div class="title">Tip</div>
+          <p>While a job runs, the Spark UI is at <a href="http://localhost:4040">localhost:4040</a>. Use it to see jobs, stages, tasks and shuffles. Chapter 18 covers it in depth.</p></div>
+      </section>
+
+      <section class="note" id="check-yourself">
+        <h2>Check yourself</h2>
+        <p>Click a card to flip it.</p>
+        <div class="cards">
+          <div class="card"><div class="inner"><div class="front">Driver</div><div class="back">Process that holds the SparkSession, builds the plan and schedules tasks.</div></div></div>
+          <div class="card"><div class="inner"><div class="front">Executor</div><div class="back">Worker JVM that runs tasks on partitions and reports back.</div></div></div>
+          <div class="card"><div class="inner"><div class="front">Partition</div><div class="back">A chunk of rows processed by one task; the unit of parallelism.</div></div></div>
+          <div class="card"><div class="inner"><div class="front">Lazy evaluation</div><div class="back">Transformations only build a plan; an action triggers execution.</div></div></div>
+          <div class="card"><div class="inner"><div class="front">Shuffle</div><div class="back">Moving data between partitions across the cluster; caused by wide transformations.</div></div></div>
+          <div class="card"><div class="inner"><div class="front">Predicate pushdown</div><div class="back">Optimizer pushes filters down to the data source so less data is read.</div></div></div>
+        </div>
+
+        <h3>Quiz · <span class="quiz-score"></span> <button class="btn" id="reset-quiz">Reset</button></h3>
+        <div class="quiz" data-answer="2">
+          <div class="q">Which call actually starts a Spark job?</div>
+          <div class="options">
+            <button>df.where("x &gt; 1")</button>
+            <button>df.select("x")</button>
+            <button>df.count()</button>
+            <button>df.groupBy("x")</button>
+          </div>
+          <div class="explain"><code>count()</code> is an action. The others only extend the plan.</div>
+        </div>
+        <div class="quiz" data-answer="1">
+          <div class="q">You have 1 partition and 100 executors. How much parallelism do you get?</div>
+          <div class="options">
+            <button>100 tasks at once</button>
+            <button>1 task at a time</button>
+            <button>It depends on the cluster manager</button>
+          </div>
+          <div class="explain">Parallelism is bounded by the number of partitions. Extra executors sit idle.</div>
+        </div>
+        <div class="quiz" data-answer="0">
+          <div class="q">Which of these causes a shuffle?</div>
+          <div class="options">
+            <button>groupBy("DEST").sum("count")</button>
+            <button>where("count &gt; 10")</button>
+            <button>select("DEST")</button>
+            <button>withColumn("x", F.lit(1))</button>
+          </div>
+          <div class="explain">Rows with the same key must land in one partition, so <code>groupBy</code> is wide. The others work on each partition independently.</div>
+        </div>
+        <div class="quiz" data-answer="1">
+          <div class="q">In <code>explain()</code> output, what marks the shuffle?</div>
+          <div class="options">
+            <button>HashAggregate</button>
+            <button>Exchange</button>
+            <button>Filter</button>
+            <button>Scan</button>
+          </div>
+          <div class="explain"><code>Exchange</code> is Spark's physical shuffle operator.</div>
+        </div>
+        <div class="quiz" data-answer="2">
+          <div class="q">Same query in the DataFrame API and in SQL: which is faster?</div>
+          <div class="options">
+            <button>The DataFrame API</button>
+            <button>SQL</button>
+            <button>Neither; both compile to the same plan</button>
+          </div>
+          <div class="explain">Both are optimized by the same engine. Compare plans with <code>explain()</code> to confirm.</div>
+        </div>
+      </section>
+
+      <nav class="footer-nav">
+        <a class="btn" href="index.html">← All chapters</a>
+      </nav>
+    </main>
+  </div>
+</body>
+</html>

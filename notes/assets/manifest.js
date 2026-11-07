@@ -3,7 +3,7 @@
 window.SPARK_CHAPTERS = [
   { part: "I. Gentle Overview of Big Data and Spark" },
   { n: 1,  title: "What Is Apache Spark?", file: null, summary: "" },
-  { n: 2,  title: "A Gentle Introduction to Spark", file: null, summary: "" },
+  { n: 2,  title: "A Gentle Introduction to Spark", file: "ch02.html", summary: "Driver/executors, DataFrames, partitions, lazy evaluation, shuffles" },
   { n: 3,  title: "A Tour of Spark's Toolset", file: null, summary: "" },
   { part: "II. Structured APIs: DataFrames, SQL, and Datasets" },
   { n: 4,  title: "Structured API Overview", file: null, summary: "" },
